@@ -67,10 +67,52 @@ func (c *Color) parse(s string) {
 	}
 }
 
+// Matrix
+// a c e   x   ax + cy + e
+// b d f . y = bx + dy + f
+// 0 0 1   1   0  + 0  + 1
+type Matrix struct {
+	a float32
+	b float32
+	c float32
+	d float32
+	e float32
+	f float32
+}
+
+func (m *Matrix) parse(s string) {
+	m.a = 1.0
+	m.b = 0
+	m.c = 0
+	m.d = 1.0
+	m.e = 0
+	m.f = 0
+
+	prefix := "matrix("
+	if strings.HasPrefix(s, prefix) && strings.HasSuffix(s, ")") {
+		ms := strings.Split(s[len(prefix):len(s)-1], ",")
+
+		if len(ms) == 6 {
+			a, _ := strconv.ParseFloat(ms[0], 32)
+			b, _ := strconv.ParseFloat(ms[1], 32)
+			c, _ := strconv.ParseFloat(ms[2], 32)
+			d, _ := strconv.ParseFloat(ms[3], 32)
+			e, _ := strconv.ParseFloat(ms[4], 32)
+			f, _ := strconv.ParseFloat(ms[5], 32)
+			m.a = float32(a)
+			m.b = float32(b)
+			m.c = float32(c)
+			m.d = float32(d)
+			m.e = float32(e)
+			m.f = float32(f)
+		}
+	}
+}
+
 type Group struct {
 	ID          string  `xml:"id,attr"`
 	Fill        Color   `xml:"fill,attr"`
-	Transform   string  `xml:"transform,attr"`
+	Transform   Matrix  `xml:"transform,attr"`
 	StrokeWidth float32 `xml:"stroke-width,attr"`
 	Stroke      Color   `xml:"stroke,attr"`
 
@@ -78,7 +120,7 @@ type Group struct {
 	Paths  []*Path  `xml:"path"`
 }
 
-func (g Group) String() string {
+func (g *Group) String() string {
 	return fmt.Sprintf("g: id=%q, fill=%#v, transform=%#v, stroke-width=%f, stroke=%#v, groups=%d, paths=%d", g.ID, g.Fill, g.Transform, g.StrokeWidth, g.Stroke, len(g.Groups), len(g.Paths))
 }
 
@@ -118,7 +160,7 @@ func (g *Group) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
 				case "fill":
 					g.Fill.parse(a.Value)
 				case "transform":
-					g.Transform = a.Value
+					g.Transform.parse(a.Value)
 				case "stroke-width":
 					f, _ := strconv.ParseFloat(a.Value, 32)
 					g.StrokeWidth = float32(f)
@@ -155,7 +197,7 @@ type Path struct {
 	D  string `xml:"d,attr"`
 }
 
-func (p Path) String() string {
+func (p *Path) String() string {
 	return fmt.Sprintf("path: id=%q, d=%#v", p.ID, p.D)
 }
 
