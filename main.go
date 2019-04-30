@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 )
 
 type Group struct {
@@ -15,27 +15,80 @@ type Group struct {
 	StrokeWidth float32 `xml:"stroke-width,attr"`
 	Stroke      string  `xml:"stroke,attr"`
 
-	Groups []Group `xml:"g"`
-	Paths  []Path  `xml:"path"`
+	Groups []*Group `xml:"g"`
+	Paths  []*Path  `xml:"path"`
 }
 
 func (g Group) String() string {
-	var out bytes.Buffer
+	return fmt.Sprintf("g: id=%q, fill=%#v, transform=%#v, stroke-width=%f, stroke=%#v, groups=%d, paths=%d", g.ID, g.Fill, g.Transform, g.StrokeWidth, g.Stroke, len(g.Groups), len(g.Paths))
+}
 
-	out.WriteString(fmt.Sprintf("g: id=%q, fill=%#v, transform=%#v, stroke-width=%f, stroke=%#v, groups=%d, paths=%d\n", g.ID, g.Fill, g.Transform, g.StrokeWidth, g.Stroke, len(g.Groups), len(g.Paths)))
-	for _, gg := range g.Groups {
-		out.WriteString("  ")
-		out.WriteString("  ")
-		out.WriteString(gg.String())
-	}
-	for _, p := range g.Paths {
-		out.WriteString("  ")
-		out.WriteString("  ")
-		out.WriteString("  ")
-		out.WriteString(p.String())
-	}
+func (g *Group) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
+	var err error
 
-	return out.String()
+	curTag := ""
+	for {
+		switch t := token.(type) {
+		case xml.StartElement:
+			if curTag == "g" && t.Name.Local == "g" {
+				g2 := new(Group)
+				token, err = g2.parse(dec, token)
+				if err != nil {
+					return token, err
+				}
+				g.Groups = append(g.Groups, g2)
+				continue
+			}
+			if curTag == "g" && t.Name.Local == "path" {
+				p := new(Path)
+				token, err = p.parse(dec, token)
+				if err != nil {
+					return token, err
+				}
+				g.Paths = append(g.Paths, p)
+				continue
+			}
+			if curTag != "" || t.Name.Local != "g" {
+				return token, fmt.Errorf("Invalid format")
+			}
+			curTag = t.Name.Local
+			for _, a := range t.Attr {
+				switch a.Name.Local {
+				case "id":
+					g.ID = a.Value
+				case "fill":
+					g.Fill = a.Value
+				case "transform":
+					g.Transform = a.Value
+				case "stroke-width":
+					f, _ := strconv.ParseFloat(a.Value, 32)
+					g.StrokeWidth = float32(f)
+				case "stroke":
+					g.Stroke = a.Value
+				}
+			}
+		case xml.EndElement:
+			if curTag == "" {
+				return token, fmt.Errorf("Invalid format")
+			}
+			if t.Name.Local != curTag {
+				return token, fmt.Errorf("Unknown tag: %q", t.Name.Local)
+			}
+			curTag = ""
+			return dec.Token()
+		case xml.ProcInst:
+			// nothing to do
+		case xml.CharData:
+			// nothing to do
+		default:
+			return token, fmt.Errorf("Error token: %#v", token)
+		}
+
+		token, err = dec.Token()
+		if err != nil {
+			return token, err
+		}
+	}
 }
 
 type Path struct {
@@ -45,6 +98,49 @@ type Path struct {
 
 func (p Path) String() string {
 	return fmt.Sprintf("path: id=%q, d=%#v", p.ID, p.D)
+}
+
+func (p *Path) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
+	var err error
+
+	curTag := ""
+	for {
+		switch t := token.(type) {
+		case xml.StartElement:
+			if curTag != "" || t.Name.Local != "path" {
+				return token, fmt.Errorf("Invalid format")
+			}
+			curTag = t.Name.Local
+			for _, a := range t.Attr {
+				switch a.Name.Local {
+				case "id":
+					p.ID = a.Value
+				case "d":
+					p.D = a.Value
+				}
+			}
+		case xml.EndElement:
+			if curTag == "" {
+				return token, fmt.Errorf("Invalid format")
+			}
+			if t.Name.Local != curTag {
+				return token, fmt.Errorf("Unknown tag: %q", t.Name.Local)
+			}
+			curTag = ""
+			return dec.Token()
+		case xml.ProcInst:
+			// nothing to do
+		case xml.CharData:
+			// nothing to do
+		default:
+			return token, fmt.Errorf("Error token: %#v", token)
+		}
+
+		token, err = dec.Token()
+		if err != nil {
+			return token, err
+		}
+	}
 }
 
 type Box struct {
@@ -61,103 +157,120 @@ type SvgRoot struct {
 	ViewBox string `xml:"viewBox,attr"` // Box
 	Version string `xml:"version,attr"`
 
-	Groups []Group `xml:"g"`
+	Groups []*Group `xml:"g"`
 }
 
 func (s *SvgRoot) String() string {
 	return fmt.Sprintf("svg: id=%q, viewBox=%#v, version=%q, groups=%d", s.ID, s.ViewBox, s.Version, len(s.Groups))
 }
 
-func printIdent(level int) {
-	for ; level > 0; level-- {
-		fmt.Print("  ")
+func (s *SvgRoot) parseGroups(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
+	var err error
+
+	for {
+		switch t := token.(type) {
+		case xml.StartElement:
+			if t.Name.Local != "g" {
+				return token, err
+			}
+			g := new(Group)
+			token, err = g.parse(dec, token)
+			if err != nil {
+				return token, err
+			}
+			s.Groups = append(s.Groups, g)
+		default:
+			return token, err
+		}
 	}
 }
 
-func parseSVG(dec *xml.Decoder) (svg *SvgRoot, err error) {
+func (s *SvgRoot) Parse(dec *xml.Decoder) error {
+	var err error
+	var token xml.Token
+
+	token, err = dec.Token()
+	if err != nil {
+		return err
+	}
+
 	curTag := ""
 	for {
-		token, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
 		switch t := token.(type) {
 		case xml.StartElement:
-			if t.Name.Local != "svg" {
-				goto nextToken
+			if curTag == "svg" && t.Name.Local == "g" {
+				token, err = s.parseGroups(dec, t)
+				if err != nil {
+					return fmt.Errorf("Invalid groups: %s, %#v", err, token)
+				}
+				continue
 			}
+			if curTag != "" || t.Name.Local != "svg" {
+				return fmt.Errorf("Invalid format: %#v", token)
+			}
+			s.XMLName = t.Name
 			curTag = t.Name.Local
-			svg = &SvgRoot{XMLName: t.Name}
 			for _, a := range t.Attr {
 				switch a.Name.Local {
 				case "id":
-					svg.ID = a.Value
+					s.ID = a.Value
 				case "viewBox":
-					svg.ViewBox = a.Value
+					s.ViewBox = a.Value
 				case "version":
-					svg.Version = a.Value
+					s.Version = a.Value
 				}
 			}
 		case xml.EndElement:
+			if curTag == "" {
+				return fmt.Errorf("Invalid format: %#v", token)
+			}
 			if t.Name.Local != curTag {
-				return nil, fmt.Errorf("Unknown tag: %q", t.Name.Local)
+				return fmt.Errorf("Unknown tag: %q", t.Name.Local)
 			}
 			curTag = ""
-			goto nextToken
+			return err
 		case xml.ProcInst:
 			// nothing to do
 		case xml.CharData:
 			// nothing to do
 		default:
-			return nil, fmt.Errorf("Error token: %#v", token)
+			return fmt.Errorf("Error token: %#v", token)
+		}
+
+		token, err = dec.Token()
+		if err != nil {
+			return err
 		}
 	}
+}
 
-nextToken:
-	// TODO: parse
-
-	return
+func printIdent(level int) {
+	for ; level > 0; level-- {
+		fmt.Print(" ")
+	}
 }
 
 func main() {
 	dec := xml.NewDecoder(os.Stdin)
 
-	svg, err := parseSVG(dec)
-	if err != nil {
+	svg := new(SvgRoot)
+	err := svg.Parse(dec)
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 
 	fmt.Println(svg)
-	panic(nil)
-
-	level := 0
-	for {
-		token, err := dec.Token()
-		if err == nil {
-			switch t := token.(type) {
-			case xml.StartElement:
-				printIdent(level)
-				fmt.Printf("%q:", t.Name.Local)
-				for _, a := range t.Attr {
-					fmt.Printf(" [%q, %q]", a.Name.Local, a.Value)
-				}
-				fmt.Println()
-				level++
-			case xml.EndElement:
-				level--
-			case xml.ProcInst:
-				// nothing to do
-			case xml.CharData:
-				// nothing to do
-			default:
-				printIdent(level)
-				fmt.Printf("Unknown: %#v\n", t)
+	for _, g := range svg.Groups {
+		printIdent(1)
+		fmt.Println(g)
+		for _, gg := range g.Groups {
+			printIdent(2)
+			fmt.Println(gg)
+			for _, p := range gg.Paths {
+				printIdent(3)
+				fmt.Println(p)
 			}
 		}
-		if err == io.EOF {
-			printIdent(level)
-			fmt.Println("EOF")
-			break
-		}
 	}
+	fmt.Println("done")
 }
