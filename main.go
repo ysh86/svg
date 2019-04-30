@@ -9,12 +9,70 @@ import (
 	"strings"
 )
 
+type Color struct {
+	R int
+	G int
+	B int
+	A int
+}
+
+func (c *Color) parse(s string) {
+	//if s == "none" {
+	c.R = 0
+	c.G = 0
+	c.B = 0
+	c.A = 0
+	//}
+
+	// hex
+	if strings.HasPrefix(s, "#") {
+		switch len(s) {
+		case 1 + 3:
+			r, _ := strconv.ParseUint(s[1+0:1+1], 16, 8)
+			g, _ := strconv.ParseUint(s[1+1:1+2], 16, 8)
+			b, _ := strconv.ParseUint(s[1+2:1+3], 16, 8)
+			a := 255
+			c.R = int((r << 4) | r)
+			c.G = int((g << 4) | g)
+			c.B = int((b << 4) | b)
+			c.A = int(a)
+		case 1 + 6:
+			r, _ := strconv.ParseUint(s[1+0:1+2], 16, 8)
+			g, _ := strconv.ParseUint(s[1+2:1+4], 16, 8)
+			b, _ := strconv.ParseUint(s[1+4:1+6], 16, 8)
+			a := 255
+			c.R = int(r)
+			c.G = int(g)
+			c.B = int(b)
+			c.A = int(a)
+		case 1 + 4:
+			r, _ := strconv.ParseUint(s[1+0:1+1], 16, 8)
+			b, _ := strconv.ParseUint(s[1+1:1+2], 16, 8)
+			g, _ := strconv.ParseUint(s[1+2:1+3], 16, 8)
+			a, _ := strconv.ParseUint(s[1+3:1+4], 16, 8)
+			c.R = int((r << 4) | r)
+			c.G = int((g << 4) | g)
+			c.B = int((b << 4) | b)
+			c.A = int((a << 4) | a)
+		case 1 + 8:
+			r, _ := strconv.ParseUint(s[1+0:1+2], 16, 8)
+			g, _ := strconv.ParseUint(s[1+2:1+4], 16, 8)
+			b, _ := strconv.ParseUint(s[1+4:1+6], 16, 8)
+			a, _ := strconv.ParseUint(s[1+6:1+8], 16, 8)
+			c.R = int(r)
+			c.G = int(g)
+			c.B = int(b)
+			c.A = int(a)
+		}
+	}
+}
+
 type Group struct {
 	ID          string  `xml:"id,attr"`
-	Fill        string  `xml:"fill,attr"`
+	Fill        Color   `xml:"fill,attr"`
 	Transform   string  `xml:"transform,attr"`
 	StrokeWidth float32 `xml:"stroke-width,attr"`
-	Stroke      string  `xml:"stroke,attr"`
+	Stroke      Color   `xml:"stroke,attr"`
 
 	Groups []*Group `xml:"g"`
 	Paths  []*Path  `xml:"path"`
@@ -58,14 +116,14 @@ func (g *Group) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
 				case "id":
 					g.ID = a.Value
 				case "fill":
-					g.Fill = a.Value
+					g.Fill.parse(a.Value)
 				case "transform":
 					g.Transform = a.Value
 				case "stroke-width":
 					f, _ := strconv.ParseFloat(a.Value, 32)
 					g.StrokeWidth = float32(f)
 				case "stroke":
-					g.Stroke = a.Value
+					g.Stroke.parse(a.Value)
 				}
 			}
 		case xml.EndElement:
