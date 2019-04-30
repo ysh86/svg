@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Group struct {
@@ -154,7 +155,7 @@ type SvgRoot struct {
 	XMLName xml.Name `xml:"svg"`
 
 	ID      string `xml:"id,attr"`
-	ViewBox string `xml:"viewBox,attr"` // Box
+	ViewBox Box    `xml:"viewBox,attr"`
 	Version string `xml:"version,attr"`
 
 	Groups []*Group `xml:"g"`
@@ -215,7 +216,14 @@ func (s *SvgRoot) Parse(dec *xml.Decoder) error {
 				case "id":
 					s.ID = a.Value
 				case "viewBox":
-					s.ViewBox = a.Value
+					fields := strings.Fields(a.Value)
+					if len(fields) != 4 {
+						return fmt.Errorf("Invalid box: %#v", token)
+					}
+					s.ViewBox.X, _ = strconv.Atoi(fields[0])
+					s.ViewBox.Y, _ = strconv.Atoi(fields[1])
+					s.ViewBox.Width, _ = strconv.Atoi(fields[2])
+					s.ViewBox.Height, _ = strconv.Atoi(fields[3])
 				case "version":
 					s.Version = a.Value
 				}
