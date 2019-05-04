@@ -1,10 +1,8 @@
-package main
+package svg
 
 import (
 	"encoding/xml"
 	"fmt"
-	"io"
-	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -396,7 +394,7 @@ type Box struct {
 	Height int
 }
 
-type SvgRoot struct {
+type Root struct {
 	XMLName xml.Name `xml:"svg"`
 
 	ID      string `xml:"id,attr"`
@@ -406,11 +404,11 @@ type SvgRoot struct {
 	Groups []*Group `xml:"g"`
 }
 
-func (s *SvgRoot) String() string {
-	return fmt.Sprintf("svg: id=%q, viewBox=%#v, version=%q, groups=%d", s.ID, s.ViewBox, s.Version, len(s.Groups))
+func (r *Root) String() string {
+	return fmt.Sprintf("svg: id=%q, viewBox=%#v, version=%q, groups=%d", r.ID, r.ViewBox, r.Version, len(r.Groups))
 }
 
-func (s *SvgRoot) parseGroups(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
+func (r *Root) parseGroups(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
 	var err error
 
 	for {
@@ -424,14 +422,14 @@ func (s *SvgRoot) parseGroups(dec *xml.Decoder, token xml.Token) (xml.Token, err
 			if err != nil {
 				return token, err
 			}
-			s.Groups = append(s.Groups, g)
+			r.Groups = append(r.Groups, g)
 		default:
 			return token, err
 		}
 	}
 }
 
-func (s *SvgRoot) Parse(dec *xml.Decoder) error {
+func (r *Root) Parse(dec *xml.Decoder) error {
 	var err error
 	var token xml.Token
 
@@ -445,7 +443,7 @@ func (s *SvgRoot) Parse(dec *xml.Decoder) error {
 		switch t := token.(type) {
 		case xml.StartElement:
 			if curTag == "svg" && t.Name.Local == "g" {
-				token, err = s.parseGroups(dec, t)
+				token, err = r.parseGroups(dec, t)
 				if err != nil {
 					return fmt.Errorf("Invalid groups: %s, %#v", err, token)
 				}
@@ -454,23 +452,23 @@ func (s *SvgRoot) Parse(dec *xml.Decoder) error {
 			if curTag != "" || t.Name.Local != "svg" {
 				return fmt.Errorf("Invalid format: %#v", token)
 			}
-			s.XMLName = t.Name
+			r.XMLName = t.Name
 			curTag = t.Name.Local
 			for _, a := range t.Attr {
 				switch a.Name.Local {
 				case "id":
-					s.ID = a.Value
+					r.ID = a.Value
 				case "viewBox":
 					fields := strings.Fields(a.Value)
 					if len(fields) != 4 {
 						return fmt.Errorf("Invalid box: %#v", token)
 					}
-					s.ViewBox.X, _ = strconv.Atoi(fields[0])
-					s.ViewBox.Y, _ = strconv.Atoi(fields[1])
-					s.ViewBox.Width, _ = strconv.Atoi(fields[2])
-					s.ViewBox.Height, _ = strconv.Atoi(fields[3])
+					r.ViewBox.X, _ = strconv.Atoi(fields[0])
+					r.ViewBox.Y, _ = strconv.Atoi(fields[1])
+					r.ViewBox.Width, _ = strconv.Atoi(fields[2])
+					r.ViewBox.Height, _ = strconv.Atoi(fields[3])
 				case "version":
-					s.Version = a.Value
+					r.Version = a.Value
 				}
 			}
 		case xml.EndElement:
@@ -495,39 +493,4 @@ func (s *SvgRoot) Parse(dec *xml.Decoder) error {
 			return err
 		}
 	}
-}
-
-func printIdent(level int) {
-	for ; level > 0; level-- {
-		fmt.Print(" ")
-	}
-}
-
-func main() {
-	dec := xml.NewDecoder(os.Stdin)
-
-	svg := new(SvgRoot)
-	err := svg.Parse(dec)
-	if err != nil && err != io.EOF {
-		panic(err)
-	}
-
-	fmt.Println(svg)
-	for _, g := range svg.Groups {
-		printIdent(1)
-		fmt.Println(g)
-		for _, gg := range g.Groups {
-			printIdent(2)
-			fmt.Println(gg)
-			for _, p := range gg.Paths {
-				printIdent(3)
-				fmt.Println(p)
-				for _, c := range p.D {
-					printIdent(4)
-					fmt.Println(c)
-				}
-			}
-		}
-	}
-	fmt.Println("done")
 }
