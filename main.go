@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type Color struct {
@@ -192,13 +193,143 @@ func (g *Group) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
 	}
 }
 
+type Point struct {
+	X float32
+	Y float32
+}
+
+type Command struct {
+	Command string   // m, s, c, l, h/v, z
+	Points  []*Point // m[1], s[2], c[3], l[1], h x, v y, z[0]
+}
+
+func (c *Command) parse(s string) {
+	var err error
+
+	var ps []string
+	b := 0
+	e := 0
+	for {
+		ee := strings.IndexAny(s[e:], "-, ")
+		if ee == -1 {
+			break
+		}
+		e = e + ee
+		if b == e {
+			e++
+			if s[b] != '-' {
+				b = e
+			}
+			continue
+		}
+		ps = append(ps, s[b:e])
+		b = e
+	}
+	if b < len(s) {
+		ps = append(ps, s[b:])
+	}
+
+	switch c.Command {
+	case "m", "M", "l", "L":
+		if len(ps)&1 != 0 {
+			err = fmt.Errorf("Invalid args[%d] of %q command: %s", len(ps), c.Command, s)
+			break
+		}
+		n := len(ps)
+		for i := 0; i < n; i += 2 {
+			x, _ := strconv.ParseFloat(ps[i+0], 32)
+			y, _ := strconv.ParseFloat(ps[i+1], 32)
+			p := new(Point)
+			p.X = float32(x)
+			p.Y = float32(y)
+			c.Points = append(c.Points, p)
+		}
+	case "s", "S":
+		if len(ps)&3 != 0 {
+			err = fmt.Errorf("Invalid args[%d] of %q command: %s", len(ps), c.Command, s)
+			break
+		}
+		n := len(ps)
+		for i := 0; i < n; i += 4 {
+			x0, _ := strconv.ParseFloat(ps[i+0], 32)
+			y0, _ := strconv.ParseFloat(ps[i+1], 32)
+			x1, _ := strconv.ParseFloat(ps[i+2], 32)
+			y1, _ := strconv.ParseFloat(ps[i+3], 32)
+			p0 := new(Point)
+			p0.X = float32(x0)
+			p0.Y = float32(y0)
+			c.Points = append(c.Points, p0)
+			p1 := new(Point)
+			p1.X = float32(x1)
+			p1.Y = float32(y1)
+			c.Points = append(c.Points, p1)
+		}
+	case "c", "C":
+		if len(ps)%6 != 0 {
+			err = fmt.Errorf("Invalid args[%d] of %q command: %s", len(ps), c.Command, s)
+			break
+		}
+		n := len(ps)
+		for i := 0; i < n; i += 6 {
+			x0, _ := strconv.ParseFloat(ps[i+0], 32)
+			y0, _ := strconv.ParseFloat(ps[i+1], 32)
+			x1, _ := strconv.ParseFloat(ps[i+2], 32)
+			y1, _ := strconv.ParseFloat(ps[i+3], 32)
+			x2, _ := strconv.ParseFloat(ps[i+4], 32)
+			y2, _ := strconv.ParseFloat(ps[i+5], 32)
+			p0 := new(Point)
+			p0.X = float32(x0)
+			p0.Y = float32(y0)
+			c.Points = append(c.Points, p0)
+			p1 := new(Point)
+			p1.X = float32(x1)
+			p1.Y = float32(y1)
+			c.Points = append(c.Points, p1)
+			p2 := new(Point)
+			p2.X = float32(x2)
+			p2.Y = float32(y2)
+			c.Points = append(c.Points, p2)
+		}
+	case "h", "H":
+		if len(ps) != 1 {
+			err = fmt.Errorf("Invalid args[%d] of %q command: %s", len(ps), c.Command, s)
+			break
+		}
+		x, _ := strconv.ParseFloat(ps[0], 32)
+		p := new(Point)
+		p.X = float32(x)
+		c.Points = append(c.Points, p)
+	case "v", "V":
+		if len(ps) != 1 {
+			err = fmt.Errorf("Invalid args[%d] of %q command: %s", len(ps), c.Command, s)
+			break
+		}
+		y, _ := strconv.ParseFloat(ps[0], 32)
+		p := new(Point)
+		p.Y = float32(y)
+		c.Points = append(c.Points, p)
+	case "z", "Z":
+		// nothing to do
+	default:
+		err = fmt.Errorf("Invalid path command %q: %s", c.Command, s)
+	}
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (c *Command) String() string {
+	return fmt.Sprintf("command: %s, points=%d", c.Command, len(c.Points))
+}
+
 type Path struct {
-	ID string `xml:"id,attr"`
-	D  string `xml:"d,attr"`
+	ID string     `xml:"id,attr"`
+	D  []*Command `xml:"d,attr"`
 }
 
 func (p *Path) String() string {
-	return fmt.Sprintf("path: id=%q, d=%#v", p.ID, p.D)
+	return fmt.Sprintf("path: id=%q, d=%d", p.ID, len(p.D))
 }
 
 func (p *Path) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
@@ -217,7 +348,21 @@ func (p *Path) parse(dec *xml.Decoder, token xml.Token) (xml.Token, error) {
 				case "id":
 					p.ID = a.Value
 				case "d":
-					p.D = a.Value
+					fs := strings.FieldsFunc(a.Value, unicode.IsLetter)
+					s := a.Value
+					for _, field := range fs {
+						cmd := new(Command)
+						cmd.Command = s[0:1]
+						cmd.parse(field)
+						p.D = append(p.D, cmd)
+
+						s = s[1+len(field):]
+					}
+					if len(s) > 0 {
+						cmd := new(Command)
+						cmd.Command = s
+						p.D = append(p.D, cmd)
+					}
 				}
 			}
 		case xml.EndElement:
@@ -377,6 +522,10 @@ func main() {
 			for _, p := range gg.Paths {
 				printIdent(3)
 				fmt.Println(p)
+				for _, c := range p.D {
+					printIdent(4)
+					fmt.Println(c)
+				}
 			}
 		}
 	}
