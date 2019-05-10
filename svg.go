@@ -71,21 +71,21 @@ func (c *Color) parse(s string) {
 // b d f . y = bx + dy + f
 // 0 0 1   1   0  + 0  + 1
 type Matrix struct {
-	a float32
-	b float32
-	c float32
-	d float32
-	e float32
-	f float32
+	A float32
+	B float32
+	C float32
+	D float32
+	E float32
+	F float32
 }
 
 func (m *Matrix) parse(s string) {
-	m.a = 1.0
-	m.b = 0
-	m.c = 0
-	m.d = 1.0
-	m.e = 0
-	m.f = 0
+	m.A = 1.0
+	m.B = 0
+	m.C = 0
+	m.D = 1.0
+	m.E = 0
+	m.F = 0
 
 	prefix := "matrix("
 	if strings.HasPrefix(s, prefix) && strings.HasSuffix(s, ")") {
@@ -98,12 +98,12 @@ func (m *Matrix) parse(s string) {
 			d, _ := strconv.ParseFloat(ms[3], 32)
 			e, _ := strconv.ParseFloat(ms[4], 32)
 			f, _ := strconv.ParseFloat(ms[5], 32)
-			m.a = float32(a)
-			m.b = float32(b)
-			m.c = float32(c)
-			m.d = float32(d)
-			m.e = float32(e)
-			m.f = float32(f)
+			m.A = float32(a)
+			m.B = float32(b)
+			m.C = float32(c)
+			m.D = float32(d)
+			m.E = float32(e)
+			m.F = float32(f)
 		}
 	}
 }
